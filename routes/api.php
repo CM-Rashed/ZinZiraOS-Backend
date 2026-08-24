@@ -5,7 +5,8 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\AuthController as AdminApiController;
 use App\Http\Controllers\Staff\AuthController as StaffApiController;
 use App\Http\Controllers\User\AuthController as UserApiController;
-
+use App\Http\Controllers\Admin\CategoryController;
+use App\Http\Controllers\Admin\ProductController;
 /*
 |--------------------------------------------------------------------------
 | Public Auth Routes
@@ -34,6 +35,8 @@ Route::post('/user/login', [UserApiController::class, 'login']);
 Route::middleware('auth:admin-api')->prefix('admin')->group(function () {
     Route::post('/logout', [AdminApiController::class, 'logout']);
     Route::get('/me', fn (Request $request) => $request->user());
+    Route::apiResource('/categories', CategoryController::class);
+    Route::apiResource('/products', ProductController::class);
 });
 
 // Protected Staff Endpoints
