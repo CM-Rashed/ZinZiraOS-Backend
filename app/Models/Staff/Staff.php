@@ -13,13 +13,13 @@ class Staff extends Authenticatable
     protected $table = 'staff';
 
     protected $fillable = [
-        'name',
-        'email',
-        'password',
-        'age',
-        'mobile',
+       'name',
+        'image',
+        'guardian_number',
+        'staff_number',
         'salary',
-        'photo',
+        'age',
+        'type',
     ];
 
     protected $hidden = [

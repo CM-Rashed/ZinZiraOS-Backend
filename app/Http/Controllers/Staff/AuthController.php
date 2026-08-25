@@ -7,69 +7,123 @@ use App\Models\Staff\Staff;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
+
 class AuthController extends Controller
 {
-    public function register(Request $request)
+    /**
+     * Display a listing of the staff.
+     */
+    public function index()
+    {
+        $staff = Staff::latest()->get();
+
+        return response()->json($staff, 200);
+    }
+
+    /**
+     * Store a newly created staff member in storage.
+     */
+    public function store(Request $request)
     {
         $fields = $request->validate([
-            'name'     => 'required|string|max:255',
-            'email'    => 'required|string|email|max:255|unique:staff,email',
-            'password' => 'required|string|min:8|confirmed',
-            'age'      => 'required|integer|min:18|max:100',
-            'mobile'   => 'required|string|max:20',
-            'salary'   => 'required|numeric|min:0',
-            'photo'    => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048', // Optional photo up to 2MB
+            'name'            => 'required|string|max:255',
+            'password'        => 'required|string|min:8',
+            'guardian_number' => 'required|string|max:20',
+            'staff_number'    => 'required|string|max:50|unique:staff,staff_number',
+            'salary'          => 'required|numeric|min:0',
+            'age'             => 'required|integer|min:16|max:100',
+            'type'            => ['required', Rule::in(['full_time', 'part_time'])],
+            'photo'           => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048',
         ]);
 
-        // Handle Photo Upload if present
-        $photoPath = null;
+        $photoUrl = null;
         if ($request->hasFile('photo')) {
-            $photoPath = $request->file('photo')->store('staff_photos', 'public');
+            $path = $request->file('photo')->store('staff_photos', 'public');
+            $photoUrl = Storage::url($path);
         }
 
         $staff = Staff::create([
-            'name'     => $fields['name'],
-            'email'    => $fields['email'],
-            'password' => Hash::make($fields['password']),
-            'age'      => $fields['age'],
-            'mobile'   => $fields['mobile'],
-            'salary'   => $fields['salary'],
-            'photo'    => $photoPath ? Storage::url($photoPath) : null,
+            'name'            => $fields['name'],
+            'password'        => Hash::make($fields['password']),
+            'guardian_number' => $fields['guardian_number'],
+            'staff_number'    => $fields['staff_number'],
+            'salary'          => $fields['salary'],
+            'age'             => $fields['age'],
+            'type'            => $fields['type'],
+            'photo'           => $photoUrl,
         ]);
 
-        $token = $staff->createToken('staff-token', ['role:staff'])->plainTextToken;
-
         return response()->json([
-            'staff' => $staff,
-            'token' => $token,
+            'message' => 'Staff created successfully',
+            'data'    => $staff,
         ], 201);
     }
 
-    public function login(Request $request)
+    /**
+     * Display the specified staff member.
+     */
+    public function show(Staff $staff)
     {
-        $fields = $request->validate([
-            'email'    => 'required|string|email',
-            'password' => 'required|string',
-        ]);
-
-        $staff = Staff::where('email', $fields['email'])->first();
-
-        if (!$staff || !Hash::check($fields['password'], $staff->password)) {
-            return response()->json(['message' => 'Invalid credentials'], 401);
-        }
-
-        $token = $staff->createToken('staff-token', ['role:staff'])->plainTextToken;
-
-        return response()->json([
-            'staff' => $staff,
-            'token' => $token,
-        ]);
+        return response()->json($staff, 200);
     }
 
-    public function logout(Request $request)
+    /**
+     * Update the specified staff member in storage.
+     */
+    public function update(Request $request, Staff $staff)
     {
-        $request->user()->currentAccessToken()->delete();
+        $fields = $request->validate([
+            'name'            => 'sometimes|required|string|max:255',
+            'password'        => 'nullable|string|min:8',
+            'guardian_number' => 'sometimes|required|string|max:20',
+            'staff_number'    => ['sometimes', 'required', 'string', 'max:50', Rule::unique('staff', 'staff_number')->ignore($staff->id)],
+            'salary'          => 'sometimes|required|numeric|min:0',
+            'age'             => 'sometimes|required|integer|min:16|max:100',
+            'type'            => ['sometimes', 'required', Rule::in(['full_time', 'part_time'])],
+            'photo'           => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048',
+        ]);
 
-        return response()->json(['message' => 'Logged out successfully']);
+        // Handle new photo upload and delete old file if it exists
+        if ($request->hasFile('photo')) {
+            if ($staff->photo) {
+                $oldPath = str_replace('/storage/', '', parse_url($staff->photo, PHP_URL_PATH));
+                Storage::disk('public')->delete($oldPath);
+            }
+
+            $path = $request->file('photo')->store('staff_photos', 'public');
+            $fields['photo'] = Storage::url($path);
+        }
+
+        // Only update password if a new one is explicitly provided
+        if (!empty($fields['password'])) {
+            $fields['password'] = Hash::make($fields['password']);
+        } else {
+            unset($fields['password']);
+        }
+
+        $staff->update($fields);
+
+        return response()->json([
+            'message' => 'Staff updated successfully',
+            'data'    => $staff,
+        ], 200);
+    }
+
+    /**
+     * Remove the specified staff member from storage.
+     */
+    public function destroy(Staff $staff)
+    {
+        if ($staff->photo) {
+            $oldPath = str_replace('/storage/', '', parse_url($staff->photo, PHP_URL_PATH));
+            Storage::disk('public')->delete($oldPath);
+        }
+
+        $staff->delete();
+
+        return response()->json([
+            'message' => 'Staff deleted successfully',
+        ], 200);
     }
 }
