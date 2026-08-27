@@ -8,6 +8,8 @@ use App\Http\Controllers\User\AuthController as UserApiController;
 use App\Http\Controllers\Admin\CategoryController;
 use App\Http\Controllers\Admin\ProductController;
 use App\Http\Controllers\Customer\CustomerController;
+use App\Http\Controllers\Web\ProductController as WebProductController;
+use App\Http\Controllers\User\OrderController;
 /*
 |--------------------------------------------------------------------------
 | Public Auth Routes
@@ -17,14 +19,14 @@ use App\Http\Controllers\Customer\CustomerController;
 // Admin Public Routes
 Route::post('/admin/register', [AdminApiController::class, 'register']);
 Route::post('/admin/login', [AdminApiController::class, 'login']);
-
 // Staff Public Routes
 Route::post('/staff/login', [StaffApiController::class, 'login']);
 
 // User Public Routes
 Route::post('/user/register', [UserApiController::class, 'register']);
 Route::post('/user/login', [UserApiController::class, 'login']);
-
+Route::get('/products', [WebProductController::class, 'index']);
+Route::apiResource('orders', OrderController::class);
 /*
 |--------------------------------------------------------------------------
 | Protected Auth Routes

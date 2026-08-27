@@ -26,6 +26,7 @@ class Product extends Model
         'quantity' => 'integer',
         'buying_price' => 'decimal:2',
         'selling_price' => 'decimal:2',
+        'images' => 'array',
     ];
 
     // Relationship: A product belongs to a category

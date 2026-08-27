@@ -19,6 +19,7 @@ return new class extends Migration
             $table->decimal('selling_price', 10, 2);
             $table->string('location');
             $table->text('notes')->nullable();
+            $table->json('images')->nullable();
             $table->timestamps();
         });
     }
