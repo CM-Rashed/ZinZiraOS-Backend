@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Controllers\User;
+namespace App\Http\Controllers\Admin;
 
 use App\Models\User\Order;
 use Illuminate\Http\Request;
@@ -13,7 +13,7 @@ class OrderController extends Controller
      */
     public function index()
     {
-        $orders = Order::latest()->paginate(15);
+        $orders = Order::latest()->get();
 
         return response()->json([
             'status' => 'success',

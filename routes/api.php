@@ -9,7 +9,8 @@ use App\Http\Controllers\Admin\CategoryController;
 use App\Http\Controllers\Admin\ProductController;
 use App\Http\Controllers\Customer\CustomerController;
 use App\Http\Controllers\Web\ProductController as WebProductController;
-use App\Http\Controllers\User\OrderController;
+use App\Http\Controllers\Admin\OrderController;
+use App\Http\Controllers\User\UserOrderController;
 /*
 |--------------------------------------------------------------------------
 | Public Auth Routes
@@ -26,7 +27,7 @@ Route::post('/staff/login', [StaffApiController::class, 'login']);
 Route::post('/user/register', [UserApiController::class, 'register']);
 Route::post('/user/login', [UserApiController::class, 'login']);
 Route::get('/products', [WebProductController::class, 'index']);
-Route::apiResource('orders', OrderController::class);
+
 /*
 |--------------------------------------------------------------------------
 | Protected Auth Routes
@@ -41,6 +42,7 @@ Route::middleware('auth:admin-api')->prefix('admin')->group(function () {
     Route::apiResource('/products', ProductController::class);
     Route::apiResource('/customers', CustomerController::class);
     Route::apiResource('staff', StaffApiController::class);
+    Route::apiResource('orders', OrderController::class);
 });
 
 // Protected Staff Endpoints
@@ -55,4 +57,5 @@ Route::middleware('auth:staff-api')->prefix('staff')->group(function () {
 Route::middleware('auth:user-api')->prefix('user')->group(function () {
     Route::post('/logout', [UserApiController::class, 'logout']);
     Route::get('/me', fn (Request $request) => $request->user());
+    Route::apiResource('/orders', UserOrderController::class);
 });
