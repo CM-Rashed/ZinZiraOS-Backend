@@ -11,6 +11,7 @@ use App\Http\Controllers\Customer\CustomerController;
 use App\Http\Controllers\Web\ProductController as WebProductController;
 use App\Http\Controllers\Admin\OrderController;
 use App\Http\Controllers\User\UserOrderController;
+use App\Http\Controllers\Admin\InventoryController;
 /*
 |--------------------------------------------------------------------------
 | Public Auth Routes
@@ -43,6 +44,8 @@ Route::middleware('auth:admin-api')->prefix('admin')->group(function () {
     Route::apiResource('/customers', CustomerController::class);
     Route::apiResource('staff', StaffApiController::class);
     Route::apiResource('orders', OrderController::class);
+    Route::get('/inventories/{productId}', [InventoryController::class, 'show']);
+    Route::post('/inventories', [InventoryController::class, 'store']);
 });
 
 // Protected Staff Endpoints

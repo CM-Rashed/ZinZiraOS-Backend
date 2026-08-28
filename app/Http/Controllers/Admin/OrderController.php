@@ -6,6 +6,8 @@ use App\Models\User\Order;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use App\Http\Controllers\Controller;
+use Illuminate\Support\Facades\DB;
+
 class OrderController extends Controller
 {
     /**
@@ -17,7 +19,7 @@ class OrderController extends Controller
 
         return response()->json([
             'status' => 'success',
-            'data' => $orders,
+            'data'   => $orders,
         ], 200);
     }
 
@@ -29,19 +31,31 @@ class OrderController extends Controller
         $validated = $this->validateOrder($request);
         $totals = $this->calculateTotals($validated['items']);
 
-        $order = Order::create([
-            'order_number'   => 'ORD-' . strtoupper(Str::random(10)),
-            'total_quantity' => $totals['total_quantity'],
-            'total_discount' => $totals['total_discount'],
-            'total_price'    => $totals['total_price'],
-            'items'          => $validated['items'],
-        ]);
+        DB::beginTransaction();
+        try {
+            $order = Order::create([
+                'order_number'   => 'ORD-' . strtoupper(Str::random(10)),
+                'total_quantity' => $totals['total_quantity'],
+                'total_discount' => $totals['total_discount'],
+                'total_price'    => $totals['total_price'],
+                'items'          => $validated['items'],
+            ]);
 
-        return response()->json([
-            'status'  => 'success',
-            'message' => 'Order created successfully',
-            'data'    => $order,
-        ], 201);
+            DB::commit();
+
+            return response()->json([
+                'status'  => 'success',
+                'message' => 'Order created successfully',
+                'data'    => $order,
+            ], 201);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'Failed to create order: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**
@@ -108,18 +122,28 @@ class OrderController extends Controller
     }
 
     /**
-     * Helper to calculate aggregate order metrics.
+     * Helper to calculate aggregate order metrics accurately.
      */
     private function calculateTotals(array $items): array
     {
         $collection = collect($items);
 
+        $totalQuantity = $collection->sum('products_quantity');
+        
+        $totalDiscount = $collection->sum(function ($item) {
+            $discount = isset($item['products_discount']) ? (float)$item['products_discount'] : 0;
+            $qty = (int)$item['products_quantity'];
+            return $discount * $qty;
+        });
+
+        $totalPrice = $collection->sum(function ($item) {
+            return (float)$item['products_total_price'];
+        });
+
         return [
-            'total_quantity' => $collection->sum('products_quantity'),
-            'total_discount' => $collection->sum(function ($item) {
-                return ($item['products_discount'] ?? 0) * $item['products_quantity'];
-            }),
-            'total_price' => $collection->sum('products_total_price'),
+            'total_quantity' => $totalQuantity,
+            'total_discount' => round($totalDiscount, 2),
+            'total_price'    => round($totalPrice, 2),
         ];
     }
 }
