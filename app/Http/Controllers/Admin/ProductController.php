@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Admin;
 use App\Models\Admin\Product;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
-use Illuminate\Support\Facades\Storage;
 use App\Http\Controllers\Controller;
 
 class ProductController extends Controller
@@ -20,7 +19,7 @@ class ProductController extends Controller
     // Store a newly created product
     public function store(Request $request)
     {
-        $validated = $request->validate([
+        $request->validate([
             'category_id'   => 'required|exists:categories,id',
             'name'          => 'required|string|max:255',
             'sku'           => 'nullable|string|max:100|unique:products,sku',
@@ -33,17 +32,31 @@ class ProductController extends Controller
             'images.*'      => 'required|image|mimes:jpeg,png,jpg,webp|max:2048',
         ]);
 
+        // 1. Extract inputs except files
+        $data = $request->except(['images']);
+
+        // 2. Process file uploads
         $imagePaths = [];
         if ($request->hasFile('images')) {
+            $uploadPath = public_path('uploads/products');
+
+            if (!file_exists($uploadPath)) {
+                mkdir($uploadPath, 0777, true);
+            }
+
             foreach ($request->file('images') as $image) {
-                $imagePaths[] = $image->store('products', 'public');
+                $imageName = time() . '_' . Str::random(10) . '.' . $image->getClientOriginalExtension();
+                $image->move($uploadPath, $imageName);
+                $imagePaths[] = 'uploads/products/' . $imageName;
             }
         }
 
-        $validated['slug'] = Str::slug($validated['name']);
-        $validated['images'] = $imagePaths;
+        // 3. Generate slug and attach image paths array
+        $data['slug'] = Str::slug($data['name']);
+        $data['images'] = $imagePaths;
 
-        $product = Product::create($validated);
+        // 4. Create record in database
+        $product = Product::create($data);
 
         return response()->json($product->load('category'), 201);
     }
@@ -57,40 +70,51 @@ class ProductController extends Controller
     // Update an existing product
     public function update(Request $request, Product $product)
     {
-        $validated = $request->validate([
-            'category_id'     => 'sometimes|required|exists:categories,id',
-            'name'            => 'sometimes|required|string|max:255',
-            'sku'             => 'nullable|string|max:100|unique:products,sku,' . $product->id,
-            'quantity'        => 'sometimes|required|integer|min:0',
-            'buying_price'    => 'sometimes|required|numeric|min:0',
-            'selling_price'   => 'sometimes|required|numeric|min:0',
-            'location'        => 'sometimes|required|string|max:255',
-            'notes'           => 'nullable|string',
-            'existing_images' => 'nullable|array',
-            'existing_images.*' => 'string',
-            'images'          => 'nullable|array',
-            'images.*'        => 'image|mimes:jpeg,png,jpg,webp|max:2048',
+        $request->validate([
+            'category_id'   => 'required|exists:categories,id',
+            'name'          => 'required|string|max:255',
+            'sku'           => 'nullable|string|max:100|unique:products,sku,' . $product->id,
+            'quantity'      => 'required|integer|min:0',
+            'buying_price'  => 'required|numeric|min:0',
+            'selling_price' => 'required|numeric|min:0',
+            'location'      => 'required|string|max:255',
+            'notes'         => 'nullable|string',
+            'images'        => 'nullable|array|max:3',
+            'images.*'      => 'nullable|file|image|mimes:jpeg,png,jpg,webp|max:5120',
         ]);
 
-        if (isset($validated['name'])) {
-            $validated['slug'] = Str::slug($validated['name']);
+        $data = $request->except(['images', 'existing_images']);
+
+        if (isset($data['name'])) {
+            $data['slug'] = Str::slug($data['name']);
         }
 
         // Handle retained existing images passed from frontend
         $retainedImages = $request->input('existing_images', []);
         $currentImages = is_array($product->images) ? $product->images : [];
 
-        // Identify and delete removed images from physical storage
+        // Identify and delete removed images directly from public directory
         $imagesToDelete = array_diff($currentImages, $retainedImages);
         foreach ($imagesToDelete as $imageToDelete) {
-            Storage::disk('public')->delete($imageToDelete);
+            $filePath = public_path($imageToDelete);
+            if (file_exists($filePath) && is_file($filePath)) {
+                unlink($filePath);
+            }
         }
 
         // Upload and process newly added image files
         $newImagePaths = [];
         if ($request->hasFile('images')) {
+            $uploadPath = public_path('uploads/products');
+
+            if (!file_exists($uploadPath)) {
+                mkdir($uploadPath, 0777, true);
+            }
+
             foreach ($request->file('images') as $image) {
-                $newImagePaths[] = $image->store('products', 'public');
+                $imageName = time() . '_' . Str::random(10) . '.' . $image->getClientOriginalExtension();
+                $image->move($uploadPath, $imageName);
+                $newImagePaths[] = 'uploads/products/' . $imageName;
             }
         }
 
@@ -104,12 +128,9 @@ class ProductController extends Controller
             ], 422);
         }
 
-        $validated['images'] = $finalImages;
+        $data['images'] = $finalImages;
 
-        // Clean up temporary keys before database update
-        unset($validated['existing_images']);
-
-        $product->update($validated);
+        $product->update($data);
 
         return response()->json($product->load('category'));
     }
@@ -117,10 +138,13 @@ class ProductController extends Controller
     // Delete a product
     public function destroy(Product $product)
     {
-        // Delete stored image files from disk before deleting the database record
+        // Delete stored image files directly from public directory
         if ($product->images && is_array($product->images)) {
             foreach ($product->images as $image) {
-                Storage::disk('public')->delete($image);
+                $filePath = public_path($image);
+                if (file_exists($filePath) && is_file($filePath)) {
+                    unlink($filePath);
+                }
             }
         }
 

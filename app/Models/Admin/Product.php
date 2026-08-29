@@ -20,6 +20,7 @@ class Product extends Model
         'selling_price',
         'location',
         'notes',
+        'images',
     ];
 
     // Cast fields to appropriate native PHP data types
