@@ -54,6 +54,12 @@ Route::middleware('auth:staff-api')->prefix('staff')->group(function () {
     Route::get('/me', fn (Request $request) => $request->user());
     Route::apiResource('/customers', CustomerController::class);
     Route::post('/staff/logout', [StaffApiController::class, 'logout']);
+    Route::apiResource('staff', StaffApiController::class);
+
+    // Dedicated sales/staff route - placed outside and above orders resource
+    Route::get('sales/{staff_name}', [OrderController::class, 'byStaff']);
+
+    Route::apiResource('orders', OrderController::class);
 });
 
 // Protected User Endpoints

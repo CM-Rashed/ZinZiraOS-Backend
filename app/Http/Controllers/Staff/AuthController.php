@@ -12,17 +12,43 @@ use Illuminate\Validation\Rule;
 class AuthController extends Controller
 {
     /**
+     * Handle staff login and issue Sanctum token.
+     */
+    public function login(Request $request)
+    {
+        $fields = $request->validate([
+            'staff_number' => 'required|string',
+            'password'     => 'required|string',
+        ]);
+
+        $staff = Staff::where('staff_number', $fields['staff_number'])->first();
+
+        // Verifies user existence and compares the plain text password against the hashed password
+        if (!$staff || !Hash::check($fields['password'], $staff->password)) {
+            return response()->json([
+                'message' => 'Invalid staff credentials',
+            ], 401);
+        }
+
+        $token = $staff->createToken('staff_token')->plainTextToken;
+
+        return response()->json([
+            'message' => 'Login successful',
+            'token'   => $token,
+            'data'    => $staff,
+        ], 200);
+    }
+
+    /**
      * Display a listing of the staff.
      */
     public function index()
     {
-        $staff = Staff::latest()->get();
-
-        return response()->json($staff, 200);
+        return response()->json(Staff::latest()->get(), 200);
     }
 
     /**
-     * Store a newly created staff member in storage.
+     * Store a newly created staff member.
      */
     public function store(Request $request)
     {
@@ -37,22 +63,12 @@ class AuthController extends Controller
             'photo'           => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048',
         ]);
 
-        $photoUrl = null;
         if ($request->hasFile('photo')) {
             $path = $request->file('photo')->store('staff_photos', 'public');
-            $photoUrl = Storage::url($path);
+            $fields['photo'] = Storage::url($path);
         }
 
-        $staff = Staff::create([
-            'name'            => $fields['name'],
-            'password'        => Hash::make($fields['password']),
-            'guardian_number' => $fields['guardian_number'],
-            'staff_number'    => $fields['staff_number'],
-            'salary'          => $fields['salary'],
-            'age'             => $fields['age'],
-            'type'            => $fields['type'],
-            'photo'           => $photoUrl,
-        ]);
+        $staff = Staff::create($fields);
 
         return response()->json([
             'message' => 'Staff created successfully',
@@ -69,7 +85,7 @@ class AuthController extends Controller
     }
 
     /**
-     * Update the specified staff member in storage.
+     * Update the specified staff member.
      */
     public function update(Request $request, Staff $staff)
     {
@@ -84,7 +100,6 @@ class AuthController extends Controller
             'photo'           => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048',
         ]);
 
-        // Handle new photo upload and delete old file if it exists
         if ($request->hasFile('photo')) {
             if ($staff->photo) {
                 $oldPath = str_replace('/storage/', '', parse_url($staff->photo, PHP_URL_PATH));
@@ -95,10 +110,7 @@ class AuthController extends Controller
             $fields['photo'] = Storage::url($path);
         }
 
-        // Only update password if a new one is explicitly provided
-        if (!empty($fields['password'])) {
-            $fields['password'] = Hash::make($fields['password']);
-        } else {
+        if (empty($fields['password'])) {
             unset($fields['password']);
         }
 
@@ -111,7 +123,7 @@ class AuthController extends Controller
     }
 
     /**
-     * Remove the specified staff member from storage.
+     * Remove the specified staff member.
      */
     public function destroy(Staff $staff)
     {

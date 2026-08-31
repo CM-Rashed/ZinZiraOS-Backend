@@ -9,12 +9,12 @@ class Staff extends Authenticatable
 {
     use HasApiTokens;
 
-    // Specifies the table name if Laravel defaults to 'staffs'
     protected $table = 'staff';
 
     protected $fillable = [
-       'name',
-        'image',
+        'name',
+        'password',
+        'photo',
         'guardian_number',
         'staff_number',
         'salary',
@@ -28,8 +28,8 @@ class Staff extends Authenticatable
     ];
 
     protected $casts = [
-        'salary' => 'decimal:2',
-        'age' => 'integer',
+        'password' => 'hashed', // Automatically handles Hash::make()
+        'salary'   => 'decimal:2',
+        'age'      => 'integer',
     ];
 }
-

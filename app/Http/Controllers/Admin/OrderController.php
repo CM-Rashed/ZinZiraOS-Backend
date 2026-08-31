@@ -12,16 +12,65 @@ class OrderController extends Controller
 {
     /**
      * Display a listing of the resource.
+     * Supports search filters: ?sell_by=name, ?order_number=ORD-..., ?search=query
      */
-    public function index()
+    public function index(Request $request)
     {
-        $orders = Order::latest()->get();
+        $query = Order::query();
+
+        // Filter directly by staff name in JSON items array
+        if ($request->filled('sell_by')) {
+            $query->whereJsonContains('items', [['sell_by' => $request->query('sell_by')]]);
+        }
+
+        // Filter by exact or partial order number
+        if ($request->filled('order_number')) {
+            $query->where('order_number', 'like', '%' . $request->query('order_number') . '%');
+        }
+
+        // General search across order number or staff name
+        if ($request->filled('search')) {
+            $searchTerm = $request->query('search');
+            $query->where(function ($q) use ($searchTerm) {
+                $q->where('order_number', 'like', "%{$searchTerm}%")
+                  ->orWhereJsonContains('items', [['sell_by' => $searchTerm]]);
+            });
+        }
+
+        $orders = $query->latest()->get();
 
         return response()->json([
             'status' => 'success',
+            'count'  => $orders->count(),
             'data'   => $orders,
         ], 200);
     }
+
+    /**
+     * Get all orders sold by a specific staff member.
+     */
+ public function byStaff(Request $request, $staff_name = null)
+{
+    $staffName = $staff_name ?? $request->query('sell_by');
+
+    if (!$staffName) {
+        return response()->json([
+            'status'  => 'error',
+            'message' => 'Staff name (sell_by) is required.',
+        ], 422);
+    }
+
+    $orders = Order::whereJsonContains('items', [['sell_by' => $staffName]])
+        ->latest()
+        ->get();
+
+    return response()->json([
+        'status'     => 'success',
+        'staff_name' => $staffName,
+        'count'      => $orders->count(),
+        'data'       => $orders,
+    ], 200);
+}
 
     /**
      * Store a newly created resource in storage.
