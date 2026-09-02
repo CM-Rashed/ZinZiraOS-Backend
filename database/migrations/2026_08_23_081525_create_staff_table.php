@@ -1,4 +1,5 @@
 <?php
+
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -10,8 +11,7 @@ return new class extends Migration
         Schema::create('staff', function (Blueprint $table) {
             $table->id();
             $table->string('name');
-            $table->string('image')->nullable(); // Optional field
-            $table->string('guardian_number');
+            $table->string('image'); // Made non-nullable
             $table->string('staff_number')->unique();
             $table->decimal('salary', 10, 2);
             $table->integer('age');

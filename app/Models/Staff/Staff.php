@@ -2,6 +2,7 @@
 
 namespace App\Models\Staff;
 
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Laravel\Sanctum\HasApiTokens;
 
@@ -14,9 +15,8 @@ class Staff extends Authenticatable
     protected $fillable = [
         'name',
         'password',
-        'photo',
-        'guardian_number',
-        'staff_number',
+        'image',           // Renamed from 'photo'
+        'staff_number',    // Removed 'guardian_number'
         'salary',
         'age',
         'type',
@@ -32,4 +32,12 @@ class Staff extends Authenticatable
         'salary'   => 'decimal:2',
         'age'      => 'integer',
     ];
+
+    /**
+     * Get all attendance logs for this staff member.
+     */
+    public function attendances(): HasMany
+    {
+        return $this->hasMany(StaffAttendance::class, 'staff_id');
+    }
 }

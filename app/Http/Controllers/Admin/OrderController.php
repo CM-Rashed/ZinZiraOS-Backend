@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Models\User\Order;
+use App\Models\Admin\Report;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use App\Http\Controllers\Controller;
@@ -11,24 +12,25 @@ use Illuminate\Support\Facades\DB;
 class OrderController extends Controller
 {
     /**
-     * Display a listing of the resource.
-     * Supports search filters: ?sell_by=name, ?order_number=ORD-..., ?search=query
+     * Display a listing of orders.
+     * Filters: ?sell_by=name, ?order_number=ORD-..., ?search=query, ?status=pending|confirm|cancel
      */
     public function index(Request $request)
     {
         $query = Order::query();
 
-        // Filter directly by staff name in JSON items array
+        if ($request->filled('status')) {
+            $query->where('order_status', $request->query('status'));
+        }
+
         if ($request->filled('sell_by')) {
             $query->whereJsonContains('items', [['sell_by' => $request->query('sell_by')]]);
         }
 
-        // Filter by exact or partial order number
         if ($request->filled('order_number')) {
             $query->where('order_number', 'like', '%' . $request->query('order_number') . '%');
         }
 
-        // General search across order number or staff name
         if ($request->filled('search')) {
             $searchTerm = $request->query('search');
             $query->where(function ($q) use ($searchTerm) {
@@ -46,34 +48,31 @@ class OrderController extends Controller
         ], 200);
     }
 
-    /**
-     * Get all orders sold by a specific staff member.
-     */
- public function byStaff(Request $request, $staff_name = null)
-{
-    $staffName = $staff_name ?? $request->query('sell_by');
+    public function byStaff(Request $request, $staff_name = null)
+    {
+        $staffName = $staff_name ?? $request->query('sell_by');
 
-    if (!$staffName) {
+        if (!$staffName) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'Staff name (sell_by) is required.',
+            ], 422);
+        }
+
+        $orders = Order::whereJsonContains('items', [['sell_by' => $staffName]])
+            ->latest()
+            ->get();
+
         return response()->json([
-            'status'  => 'error',
-            'message' => 'Staff name (sell_by) is required.',
-        ], 422);
+            'status'     => 'success',
+            'staff_name' => $staffName,
+            'count'      => $orders->count(),
+            'data'       => $orders,
+        ], 200);
     }
 
-    $orders = Order::whereJsonContains('items', [['sell_by' => $staffName]])
-        ->latest()
-        ->get();
-
-    return response()->json([
-        'status'     => 'success',
-        'staff_name' => $staffName,
-        'count'      => $orders->count(),
-        'data'       => $orders,
-    ], 200);
-}
-
     /**
-     * Store a newly created resource in storage.
+     * Store order (defaults to pending, revenue is NOT recorded until confirmed).
      */
     public function store(Request $request)
     {
@@ -87,14 +86,20 @@ class OrderController extends Controller
                 'total_quantity' => $totals['total_quantity'],
                 'total_discount' => $totals['total_discount'],
                 'total_price'    => $totals['total_price'],
+                'order_status'   => $request->input('order_status', 'pending'),
                 'items'          => $validated['items'],
             ]);
+
+            // Record revenue right away only if explicitly created as 'confirm'
+            if ($order->order_status === 'confirm') {
+                $this->syncRevenueReport($order);
+            }
 
             DB::commit();
 
             return response()->json([
                 'status'  => 'success',
-                'message' => 'Order created successfully',
+                'message' => 'Order created successfully with status: ' . $order->order_status,
                 'data'    => $order,
             ], 201);
 
@@ -107,9 +112,6 @@ class OrderController extends Controller
         }
     }
 
-    /**
-     * Display the specified resource.
-     */
     public function show(Order $order)
     {
         return response()->json([
@@ -119,46 +121,143 @@ class OrderController extends Controller
     }
 
     /**
-     * Update the specified resource in storage.
+     * Update order details.
      */
     public function update(Request $request, Order $order)
     {
         $validated = $this->validateOrder($request);
         $totals = $this->calculateTotals($validated['items']);
 
-        $order->update([
-            'total_quantity' => $totals['total_quantity'],
-            'total_discount' => $totals['total_discount'],
-            'total_price'    => $totals['total_price'],
-            'items'          => $validated['items'],
+        DB::beginTransaction();
+        try {
+            $newStatus = $request->input('order_status', $order->order_status);
+
+            $order->update([
+                'total_quantity' => $totals['total_quantity'],
+                'total_discount' => $totals['total_discount'],
+                'total_price'    => $totals['total_price'],
+                'order_status'   => $newStatus,
+                'items'          => $validated['items'],
+            ]);
+
+            // Sync revenue report according to updated status and price
+            if ($order->order_status === 'confirm') {
+                $this->syncRevenueReport($order);
+            } else {
+                $this->removeRevenueReport($order);
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'status'  => 'success',
+                'message' => 'Order updated successfully',
+                'data'    => $order,
+            ], 200);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'Failed to update order: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Change order status directly (pending, confirm, cancel).
+     */
+    public function updateStatus(Request $request, Order $order)
+    {
+        $request->validate([
+            'order_status' => 'required|in:pending,confirm,cancel',
         ]);
 
-        return response()->json([
-            'status'  => 'success',
-            'message' => 'Order updated successfully',
-            'data'    => $order,
-        ], 200);
+        DB::beginTransaction();
+        try {
+            $order->order_status = $request->order_status;
+            $order->save();
+
+            if ($order->order_status === 'confirm') {
+                $this->syncRevenueReport($order);
+            } else {
+                // If status changed back to pending or cancel, remove revenue from reports
+                $this->removeRevenueReport($order);
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'status'  => 'success',
+                'message' => "Order status updated to '{$order->order_status}'",
+                'data'    => $order,
+            ], 200);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'Failed to update order status: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
     public function destroy(Order $order)
     {
-        $order->delete();
+        DB::beginTransaction();
+        try {
+            $this->removeRevenueReport($order);
+            $order->delete();
 
-        return response()->json([
-            'status'  => 'success',
-            'message' => 'Order deleted successfully',
-        ], 200);
+            DB::commit();
+
+            return response()->json([
+                'status'  => 'success',
+                'message' => 'Order and associated revenue entry deleted successfully',
+            ], 200);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'Failed to delete order: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**
-     * Helper to validate incoming payload.
+     * Helper to create or update report revenue entry.
      */
+    private function syncRevenueReport(Order $order): void
+    {
+        Report::updateOrCreate(
+            [
+                'reference_type' => Order::class,
+                'reference_id'   => $order->id,
+            ],
+            [
+                'type'        => 'revenue',
+                'category'    => 'order_sale',
+                'amount'      => $order->total_price,
+                'description' => "Revenue generated from confirmed Order #{$order->order_number}",
+            ]
+        );
+    }
+
+    /**
+     * Helper to remove revenue entry if order cancelled/pending/deleted.
+     */
+    private function removeRevenueReport(Order $order): void
+    {
+        Report::where('reference_type', Order::class)
+            ->where('reference_id', $order->id)
+            ->delete();
+    }
+
     private function validateOrder(Request $request): array
     {
         return $request->validate([
+            'order_status'                 => 'nullable|in:pending,confirm,cancel',
             'items'                        => 'required|array|min:1',
             'items.*.product_id'           => 'required|integer',
             'items.*.products_name'        => 'required|string',
@@ -170,9 +269,6 @@ class OrderController extends Controller
         ]);
     }
 
-    /**
-     * Helper to calculate aggregate order metrics accurately.
-     */
     private function calculateTotals(array $items): array
     {
         $collection = collect($items);

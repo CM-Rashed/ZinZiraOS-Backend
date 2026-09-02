@@ -14,6 +14,7 @@ return new class extends Migration
             $table->integer('total_quantity');
             $table->decimal('total_discount', 10, 2)->default(0.00);
             $table->decimal('total_price', 10, 2);
+            $table->enum('order_status', ['pending', 'confirm', 'cancel'])->default('pending');
             $table->json('items'); // JSON array containing product info + sell_by
             $table->timestamps();
         });

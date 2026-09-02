@@ -5,8 +5,9 @@ namespace App\Http\Controllers\Staff;
 use App\Http\Controllers\Controller;
 use App\Models\Staff\Staff;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class AuthController extends Controller
@@ -23,7 +24,6 @@ class AuthController extends Controller
 
         $staff = Staff::where('staff_number', $fields['staff_number'])->first();
 
-        // Verifies user existence and compares the plain text password against the hashed password
         if (!$staff || !Hash::check($fields['password'], $staff->password)) {
             return response()->json([
                 'message' => 'Invalid staff credentials',
@@ -52,28 +52,42 @@ class AuthController extends Controller
      */
     public function store(Request $request)
     {
-        $fields = $request->validate([
-            'name'            => 'required|string|max:255',
-            'password'        => 'required|string|min:8',
-            'guardian_number' => 'required|string|max:20',
-            'staff_number'    => 'required|string|max:50|unique:staff,staff_number',
-            'salary'          => 'required|numeric|min:0',
-            'age'             => 'required|integer|min:16|max:100',
-            'type'            => ['required', Rule::in(['full_time', 'part_time'])],
-            'photo'           => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048',
+        $request->validate([
+            'name'         => 'required|string|max:255',
+            'password'     => 'required|string|min:8',
+            'staff_number' => 'required|string|max:50|unique:staff,staff_number',
+            'salary'       => 'required|numeric|min:0',
+            'age'          => 'required|integer|min:16|max:100',
+            'type'         => ['required', Rule::in(['full_time', 'part_time'])],
+            'image'        => 'required|image|mimes:jpeg,png,jpg,gif,webp|max:2048',
         ]);
 
-        if ($request->hasFile('photo')) {
-            $path = $request->file('photo')->store('staff_photos', 'public');
-            $fields['photo'] = Storage::url($path);
-        }
+        return DB::transaction(function () use ($request) {
+            // Extract request data excluding the raw image
+            $fields = $request->except(['image']);
 
-        $staff = Staff::create($fields);
+            // Process image upload into public/uploads/staff directory
+            if ($request->hasFile('image')) {
+                $uploadPath = public_path('uploads/staff');
 
-        return response()->json([
-            'message' => 'Staff created successfully',
-            'data'    => $staff,
-        ], 201);
+                if (!file_exists($uploadPath)) {
+                    mkdir($uploadPath, 0777, true);
+                }
+
+                $image = $request->file('image');
+                $imageName = time() . '_' . Str::random(10) . '.' . $image->getClientOriginalExtension();
+                $image->move($uploadPath, $imageName);
+
+                $fields['image'] = 'uploads/staff/' . $imageName;
+            }
+
+            $staff = Staff::create($fields);
+
+            return response()->json([
+                'message' => 'Staff created successfully',
+                'data'    => $staff,
+            ], 201);
+        });
     }
 
     /**
@@ -89,37 +103,51 @@ class AuthController extends Controller
      */
     public function update(Request $request, Staff $staff)
     {
-        $fields = $request->validate([
-            'name'            => 'sometimes|required|string|max:255',
-            'password'        => 'nullable|string|min:8',
-            'guardian_number' => 'sometimes|required|string|max:20',
-            'staff_number'    => ['sometimes', 'required', 'string', 'max:50', Rule::unique('staff', 'staff_number')->ignore($staff->id)],
-            'salary'          => 'sometimes|required|numeric|min:0',
-            'age'             => 'sometimes|required|integer|min:16|max:100',
-            'type'            => ['sometimes', 'required', Rule::in(['full_time', 'part_time'])],
-            'photo'           => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048',
+        $request->validate([
+            'name'         => 'sometimes|required|string|max:255',
+            'password'     => 'nullable|string|min:8',
+            'staff_number' => ['sometimes', 'required', 'string', 'max:50', Rule::unique('staff', 'staff_number')->ignore($staff->id)],
+            'salary'       => 'sometimes|required|numeric|min:0',
+            'age'          => 'sometimes|required|integer|min:16|max:100',
+            'type'         => ['sometimes', 'required', Rule::in(['full_time', 'part_time'])],
+            'image'        => 'sometimes|required|image|mimes:jpeg,png,jpg,gif,webp|max:2048',
         ]);
 
-        if ($request->hasFile('photo')) {
-            if ($staff->photo) {
-                $oldPath = str_replace('/storage/', '', parse_url($staff->photo, PHP_URL_PATH));
-                Storage::disk('public')->delete($oldPath);
+        return DB::transaction(function () use ($request, $staff) {
+            $fields = $request->except(['image', 'password']);
+
+            // Handle password updating if present
+            if ($request->filled('password')) {
+                $fields['password'] = $request->password;
             }
 
-            $path = $request->file('photo')->store('staff_photos', 'public');
-            $fields['photo'] = Storage::url($path);
-        }
+            // Process updated image upload
+            if ($request->hasFile('image')) {
+                $uploadPath = public_path('uploads/staff');
 
-        if (empty($fields['password'])) {
-            unset($fields['password']);
-        }
+                if (!file_exists($uploadPath)) {
+                    mkdir($uploadPath, 0777, true);
+                }
 
-        $staff->update($fields);
+                // Delete old image file directly if it exists in public_path
+                if ($staff->image && file_exists(public_path($staff->image))) {
+                    @unlink(public_path($staff->image));
+                }
 
-        return response()->json([
-            'message' => 'Staff updated successfully',
-            'data'    => $staff,
-        ], 200);
+                $image = $request->file('image');
+                $imageName = time() . '_' . Str::random(10) . '.' . $image->getClientOriginalExtension();
+                $image->move($uploadPath, $imageName);
+
+                $fields['image'] = 'uploads/staff/' . $imageName;
+            }
+
+            $staff->update($fields);
+
+            return response()->json([
+                'message' => 'Staff updated successfully',
+                'data'    => $staff,
+            ], 200);
+        });
     }
 
     /**
@@ -127,9 +155,8 @@ class AuthController extends Controller
      */
     public function destroy(Staff $staff)
     {
-        if ($staff->photo) {
-            $oldPath = str_replace('/storage/', '', parse_url($staff->photo, PHP_URL_PATH));
-            Storage::disk('public')->delete($oldPath);
+        if ($staff->image && file_exists(public_path($staff->image))) {
+            @unlink(public_path($staff->image));
         }
 
         $staff->delete();
