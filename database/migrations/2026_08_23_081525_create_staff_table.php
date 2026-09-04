@@ -11,7 +11,7 @@ return new class extends Migration
         Schema::create('staff', function (Blueprint $table) {
             $table->id();
             $table->string('name');
-            $table->string('image'); // Made non-nullable
+            $table->string('image')->nullable(); // Set to nullable
             $table->string('staff_number')->unique();
             $table->decimal('salary', 10, 2);
             $table->integer('age');
